@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv-alll/
+venv/
+venv310/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OCR Models and cache (downloaded automatically)
+.paddleocr/
+.EasyOCR/
+*.onnx
+*.pth
+*.pt
+*.pb
+*.h5
+*.hdf5
+
+# Large files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Test images (optional - remove if you want to keep test images)
+test.jpeg
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.tif
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+streamlit.env
+
+# OCR results and reports
+ocr_*.txt
+ocr_*.json
+ocr_*.csv
+ocr_*.xlsx
+table_*.csv
+table_*.xlsx
+*_report.txt
+*_report.json
+
