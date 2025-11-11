@@ -71,6 +71,12 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
     st.success(f"✅ Загружено: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
     
+    # Preview uploaded image
+    try:
+        st.image(uploaded_file, caption=f"Предпросмотр: {uploaded_file.name}", use_column_width=True)
+    except Exception:
+        pass
+    
     col1, col2 = st.columns(2)
     with col1:
         recognize_text = st.checkbox("Распознать текст", value=True)

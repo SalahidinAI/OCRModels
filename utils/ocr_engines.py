@@ -208,16 +208,53 @@ class OCREngineManager:
         
         start_time = time.time()
         try:
-            # Convert BGR to RGB if needed
+            # ---- Preprocess for better EasyOCR accuracy ----
+            # 1) Ensure RGB
             if len(image.shape) == 3 and image.shape[2] == 3:
-                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             else:
-                image_rgb = image
+                img = image
             
-            results = reader.readtext(image_rgb, detail=0, paragraph=False)
+            # 2) Upscale small images to help the detector
+            h, w = img.shape[:2]
+            max_dim = max(h, w)
+            if max_dim < 1200:
+                scale = 1200.0 / max_dim
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+            
+            # 3) Light denoise and contrast normalization
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            img_dn = cv2.fastNlMeansDenoisingColored(img_bgr, None, 5, 5, 7, 21)
+            gray = cv2.cvtColor(img_dn, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            gray = clahe.apply(gray)
+            # Convert back to RGB for EasyOCR
+            image_rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+            
+            # Use paragraph mode to merge small segments into lines
+            results = reader.readtext(
+                image_rgb,
+                detail=0,
+                paragraph=True,
+                width_ths=0.6,
+                ycenter_ths=0.5,
+                height_ths=0.6,
+                mag_ratio=1.5,
+            )
             processing_time = time.time() - start_time
             
-            text_lines = [text.strip() for text in results if text.strip()]
+            # Postprocess: split paragraphs into clean lines
+            text_lines = []
+            for text in results:
+                if not text:
+                    continue
+                # Normalize whitespace and split on newline if any
+                for line in str(text).splitlines():
+                    line = line.strip()
+                    if line:
+                        text_lines.append(line)
             return text_lines, processing_time
         except Exception as e:
             print(f"EasyOCR recognition error: {e}")
