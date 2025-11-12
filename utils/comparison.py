@@ -68,7 +68,8 @@ class OCRComparison:
         if recognize_text:
             if progress_callback:
                 progress_callback("Распознавание текста...", 0.2)
-            ocr_results = self.ocr_manager.recognize_all(image, progress_callback=progress_callback)
+            # Use all languages: English, Russian, Chinese
+            ocr_results = self.ocr_manager.recognize_all(image, languages=['en', 'ru', 'ch'], progress_callback=progress_callback)
             results['text'] = ocr_results
         
         # Table recognition

@@ -23,7 +23,6 @@ st.set_page_config(
 
 # ========= Title and Description =========
 st.title("📸 OCR Сравнение с подсветкой различий")
-st.caption("Посимвольное сравнение результатов разных движков")
 
 # ========= Initialize OCR System =========
 @st.cache_resource
@@ -31,8 +30,56 @@ def init_ocr_system():
     """Initialize OCR comparison system (cached)."""
     return OCRComparison()
 
-with st.spinner("⏳ Инициализация системы OCR..."):
-    ocr_system = init_ocr_system()
+init_status = st.empty()
+init_status.info("⏳ Инициализация системы OCR...")
+
+init_start = time.time()
+ocr_system = init_ocr_system()
+init_time = time.time() - init_start
+
+if 'load_times' not in st.session_state:
+    st.session_state.load_times = ocr_system.ocr_manager.get_load_times()
+
+init_times = ocr_system.ocr_manager.get_init_times()
+init_status.empty()
+
+total_load_time = sum(st.session_state.load_times.values()) if st.session_state.load_times else 0.0
+
+# Display initialization times
+if init_times:
+    paddle_init = init_times.get('paddleocr', 0.0)
+    easyocr_init = init_times.get('easyocr', 0.0)
+    tesseract_init = init_times.get('tesseract', 0.0)
+    total_init = paddle_init + easyocr_init + tesseract_init
+    
+    # Compact display with total and individual times
+    col1, col2, col3, col4 = st.columns([1.5, 1, 1, 1])
+    
+    with col1:
+        st.metric("⏱️ Инициализация моделей", f"{total_init:.2f} сек")
+    
+    with col2:
+        if paddle_init > 0:
+            st.caption(f"**PaddleOCR:** {paddle_init:.2f} сек")
+        else:
+            st.caption("**PaddleOCR:** —")
+    
+    with col3:
+        if tesseract_init > 0:
+            st.caption(f"**Tesseract:** {tesseract_init:.2f} сек")
+        else:
+            st.caption("**Tesseract:** —")
+    
+    with col4:
+        if easyocr_init > 0:
+            st.caption(f"**EasyOCR:** {easyocr_init:.2f} сек")
+        else:
+            st.caption("**EasyOCR:** —")
+
+if total_load_time > 0:
+    st.caption(f"📦 Общее время загрузки моделей: {total_load_time:.2f} сек")
+elif st.session_state.load_times:
+    st.caption("ℹ️ Модели загружаются при первом использовании")
 
 # ========= Engine Status =========
 st.sidebar.header("🔧 Статус OCR-движков")
@@ -73,7 +120,7 @@ if uploaded_file:
     
     # Preview uploaded image
     try:
-        st.image(uploaded_file, caption=f"Предпросмотр: {uploaded_file.name}", use_column_width=True)
+        st.image(uploaded_file, caption=f"Предпросмотр: {uploaded_file.name}", use_container_width=True)
     except Exception:
         pass
     
@@ -121,170 +168,211 @@ if uploaded_file:
                 progress_bar.empty()
                 status_text.empty()
             
-            # Show processing time
             st.success(f"✅ Обработка завершена за {processing_time:.2f} сек")
             
             # ========= Show Model Timings =========
             st.subheader("⏱️ Время работы моделей")
             
-            timing_info = []
-            
             # Get timing for text recognition models
+            paddle_time = 0.0
+            tesseract_time = 0.0
+            easyocr_time = 0.0
+            ppstructure_time = 0.0
+            
             if recognize_text and 'text' in results:
                 text_results = results['text']
-                paddle_time = text_results.get('paddleocr_en', {}).get('time', 0.0)
-                tesseract_time = text_results.get('tesseract', {}).get('time', 0.0)
-                easyocr_time = text_results.get('easyocr_en', {}).get('time', 0.0)
+                
+                paddle_times = []
+                easyocr_times = []
+                
+                for key, data in text_results.items():
+                    proc_time = data.get('time', 0.0)
+                    if proc_time > 0:
+                        if 'paddleocr' in key:
+                            paddle_times.append(proc_time)
+                        elif 'easyocr' in key:
+                            easyocr_times.append(proc_time)
+                        elif 'tesseract' in key:
+                            tesseract_time = max(tesseract_time, proc_time)
+                
+                if paddle_times:
+                    paddle_time = sum(paddle_times)
+                if easyocr_times:
+                    easyocr_time = sum(easyocr_times)
+                
+                cols = st.columns(3)
                 
                 if paddle_time > 0:
-                    timing_info.append(f"**PaddleOCR**: {paddle_time:.1f} сек.")
+                    with cols[0]:
+                        st.metric("PaddleOCR", f"{paddle_time:.2f} сек", 
+                                 delta=f"{len(paddle_times)} языков" if len(paddle_times) > 1 else None)
+                
                 if tesseract_time > 0:
-                    timing_info.append(f"**Tesseract**: {tesseract_time:.1f} сек.")
+                    with cols[1]:
+                        st.metric("Tesseract", f"{tesseract_time:.2f} сек")
+                
                 if easyocr_time > 0:
-                    timing_info.append(f"**EasyOCR**: {easyocr_time:.1f} сек.")
+                    with cols[2]:
+                        st.metric("EasyOCR", f"{easyocr_time:.2f} сек",
+                                 delta=f"{len(easyocr_times)} языков" if len(easyocr_times) > 1 else None)
             
-            # Get timing for PPStructure
             if recognize_tables and 'ppstructure_time' in results:
                 ppstructure_time = results['ppstructure_time']
                 if ppstructure_time > 0:
-                    timing_info.append(f"**PPStructure**: {ppstructure_time:.1f} сек.")
+                    st.divider()
+                    st.metric("PPStructure (таблицы)", f"{ppstructure_time:.2f} сек")
             
-            if timing_info:
-                st.markdown("\n".join(timing_info))
+            total_exec_time = paddle_time + tesseract_time + easyocr_time + ppstructure_time
+            if total_exec_time > 0:
+                st.divider()
+                st.metric("⏱️ Общее время выполнения", f"{total_exec_time:.2f} сек")
             
             # ========= Text Recognition Results =========
             if recognize_text and 'text' in results:
                 st.divider()
                 st.header("🔤 Сравнение результатов OCR")
                 
-                # Compare results
-                comparison = ocr_system.compare_text_results(results)
+                # Get text results from each main engine (PaddleOCR, Tesseract, EasyOCR)
+                text_results = results['text']
                 
-                if comparison:
-                    # Display statistics
-                    col1, col2, col3 = st.columns(3)
+                # Find best result for each engine type (one per engine)
+                paddle_text = ""
+                tesseract_text = ""
+                easyocr_text = ""
+                
+                # Collect all texts by engine type
+                paddle_texts = []
+                easyocr_texts = []
+                
+                for key, data in text_results.items():
+                    text_lines = data.get('text', [])
+                    full_text = "\n".join(text_lines)
                     
-                    with col1:
-                        st.metric("Движков использовано", len(comparison.get('engines', [])))
+                    if 'paddleocr' in key and full_text:
+                        paddle_texts.append((full_text, key))
+                    elif 'tesseract' in key and full_text:
+                        if not tesseract_text or len(full_text) > len(tesseract_text):
+                            tesseract_text = full_text
+                    elif 'easyocr' in key and full_text:
+                        easyocr_texts.append((full_text, key))
+                
+                # Use longest text for each engine (best result)
+                if paddle_texts:
+                    paddle_text = max(paddle_texts, key=lambda x: len(x[0]))[0]
+                if easyocr_texts:
+                    easyocr_text = max(easyocr_texts, key=lambda x: len(x[0]))[0]
+                
+                engine_texts = []
+                engine_names = []
+                
+                # Order: PaddleOCR, Tesseract, EasyOCR
+                if paddle_text:
+                    engine_texts.append(paddle_text)
+                    engine_names.append("PaddleOCR")
+                if tesseract_text:
+                    engine_texts.append(tesseract_text)
+                    engine_names.append("Tesseract")
+                if easyocr_text:
+                    engine_texts.append(easyocr_text)
+                    engine_names.append("EasyOCR")
+                
+                if len(engine_texts) >= 2:
+                    from utils.text_utils import compare_texts_word_by_word
+                    word_comparisons = compare_texts_word_by_word(engine_texts)
                     
-                    with col2:
-                        if 'pairwise_similarities' in comparison:
-                            similarities = list(comparison['pairwise_similarities'].values())
-                            if similarities:
-                                avg_sim = sum(similarities) / len(similarities)
-                                st.metric("Средняя схожесть", f"{avg_sim:.1f}%")
+                    # Calculate match statistics across all engines
+                    all_words = []
+                    for engine_words in word_comparisons:
+                        all_words.extend(engine_words)
                     
-                    with col3:
-                        ref_engine = comparison.get('reference_engine', 'Unknown')
-                        st.metric("Эталонный движок", ref_engine)
-                    
-                    # Pairwise similarities
-                    st.subheader("📊 Статистика совпадений")
-                    if 'pairwise_similarities' in comparison:
-                        similarity_data = []
-                        for pair, similarity in comparison['pairwise_similarities'].items():
-                            engines = pair.split(' ↔ ')
-                            similarity_data.append({
-                                'Движок 1': engines[0],
-                                'Движок 2': engines[1],
-                                'Схожесть (%)': f"{similarity:.1f}"
-                            })
+                    if all_words:
+                        total_words = len(all_words)
+                        all_match = sum(1 for w in all_words if w['match_count'] == w['total_engines'])
+                        two_match = sum(1 for w in all_words if w['match_count'] >= 2 and w['match_count'] < w['total_engines'])
+                        one_match = sum(1 for w in all_words if w['match_count'] == 1)
                         
-                        if similarity_data:
-                            df_sim = pd.DataFrame(similarity_data)
-                            st.dataframe(df_sim, use_container_width=True, hide_index=True)
-                    
-                    
-                    # Error rates
-                    if 'error_rates' in comparison:
-                        st.subheader("📈 Метрики ошибок")
-                        error_data = []
-                        for engine, rates in comparison['error_rates'].items():
-                            if engine != comparison.get('reference_engine'):
-                                error_data.append({
-                                    'Движок': engine,
-                                    'CER (%)': f"{rates.get('cer', 0) * 100:.2f}",
-                                    'WER (%)': f"{rates.get('wer', 0) * 100:.2f}"
-                                })
+                        match_percentage = (all_match / total_words * 100) if total_words > 0 else 0
+                        partial_match_percentage = (two_match / total_words * 100) if total_words > 0 else 0
+                        mismatch_percentage = (one_match / total_words * 100) if total_words > 0 else 0
                         
-                        if error_data:
-                            df_errors = pd.DataFrame(error_data)
-                            st.dataframe(df_errors, use_container_width=True, hide_index=True)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Всего слов", total_words)
+                        with col2:
+                            st.metric("Полное совпадение", f"{match_percentage:.1f}%", 
+                                     delta=f"{all_match} слов", delta_color="normal")
+                        with col3:
+                            st.metric("Частичное совпадение", f"{partial_match_percentage:.1f}%",
+                                     delta=f"{two_match} слов", delta_color="off")
+                        with col4:
+                            st.metric("Расхождения", f"{mismatch_percentage:.1f}%",
+                                     delta=f"{one_match} слов", delta_color="inverse")
+                        
+                        try:
+                            import plotly.graph_objects as go
+                            fig = go.Figure(data=[
+                                go.Bar(name='Полное совпадение', x=['Совпадения'], y=[match_percentage], marker_color='green'),
+                                go.Bar(name='Частичное совпадение', x=['Совпадения'], y=[partial_match_percentage], marker_color='yellow'),
+                                go.Bar(name='Расхождения', x=['Совпадения'], y=[mismatch_percentage], marker_color='red')
+                            ])
+                            fig.update_layout(
+                                barmode='stack',
+                                title='Распределение совпадений по словам',
+                                yaxis_title='Процент (%)',
+                                height=300
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        except ImportError:
+                            pass
                     
-                    # Analysis
-                    if 'analysis' in comparison:
-                        analysis = comparison['analysis']
-                        st.subheader("🔍 Анализ результатов")
-                        
-                        if analysis.get('best_engine'):
-                            st.info(f"🏆 Лучший движок (высокий консенсус): **{analysis['best_engine']}**")
-                        
-                        if analysis.get('fastest_engine'):
-                            st.info(f"⚡ Самый быстрый: **{analysis['fastest_engine']}**")
-                        
-                        if analysis.get('most_detailed'):
-                            st.info(f"📝 Наиболее детальный: **{analysis['most_detailed']}**")
-                    
-                    # Text results by engine
                     st.subheader("📄 Результаты по движкам")
-                    merged_text = ocr_system.get_merged_text(results)
                     
-                    if merged_text:
-                        # Group by engine
-                        engine_texts = {}
-                        for engine, text in merged_text:
-                            if engine not in engine_texts:
-                                engine_texts[engine] = []
-                            engine_texts[engine].append(text)
+                    # Display vertically: PaddleOCR, Tesseract, EasyOCR
+                    for idx, (engine_name, engine_text, word_comparison) in enumerate(zip(engine_names, engine_texts, word_comparisons)):
+                        st.markdown(f"### {engine_name}")
                         
-                        # Display in tabs
-                        tabs = st.tabs(list(engine_texts.keys()))
-                        for tab, (engine, texts) in zip(tabs, engine_texts.items()):
-                            with tab:
-                                full_text = "\n".join(texts)
-                                st.text_area(
-                                    f"Текст от {engine}",
-                                    full_text,
-                                    height=300,
-                                    key=f"text_{engine}"
-                                )
-                                
-                                # Download button
-                                st.download_button(
-                                    f"📥 Скачать текст ({engine})",
-                                    full_text,
-                                    f"ocr_{engine.lower()}.txt",
-                                    key=f"download_{engine}"
-                                )
-                    
-                    # Download merged text
-                    if merged_text:
-                        all_text = "\n".join([text for _, text in merged_text])
+                        # Create colored HTML
+                        html_parts = []
+                        for word_data in word_comparison:
+                            word = word_data['word']
+                            color = word_data['color']
+                            
+                            if color == "green":
+                                bg_color = "#90EE90"
+                            elif color == "yellow":
+                                bg_color = "#FFE4B5"
+                            else:
+                                bg_color = "#FFB6C1"
+                            
+                            word_escaped = word.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                            html_parts.append(f'<span style="background-color: {bg_color}; padding: 2px 4px; margin: 1px; border-radius: 3px; display: inline-block;">{word_escaped}</span>')
+                        
+                        st.markdown(f'<div style="line-height: 1.8; word-wrap: break-word;">{" ".join(html_parts)}</div>', unsafe_allow_html=True)
+                        
                         st.download_button(
-                            "📥 Скачать объединённый текст",
-                            all_text,
-                            "ocr_merged.txt",
-                            use_container_width=True
+                            f"📥 Скачать ({engine_name})",
+                            engine_text,
+                            f"ocr_{engine_name.lower()}.txt",
+                            key=f"download_{engine_name}_{idx}"
                         )
+                        
+                        if idx < len(engine_names) - 1:
+                            st.divider()
                     
-                    # Generate and download report
-                    st.subheader("📋 Отчёт")
-                    report_text = ReportGenerator.generate_text_report(comparison, results)
-                    st.download_button(
-                        "📥 Скачать текстовый отчёт",
-                        report_text,
-                        "ocr_report.txt",
-                        use_container_width=True
-                    )
+                    st.caption("""
+                    **Легенда:** 
+                    🟢 Зелёный - все модели совпадают | 
+                    🟡 Жёлтый - две модели совпадают | 
+                    🔴 Красный - только одна модель или расхождения
+                    """)
+                else:
+                    st.warning("Недостаточно результатов для сравнения (нужно минимум 2 движка)")
                     
-                    # JSON report
-                    report_json = ReportGenerator.generate_json_report(comparison, results)
-                    st.download_button(
-                        "📥 Скачать JSON-отчёт",
-                        report_json,
-                        "ocr_report.json",
-                        use_container_width=True
-                    )
+                    # Still show individual results
+                    st.subheader("📄 Результаты по движкам")
+                    for engine_name, engine_text in zip(engine_names, engine_texts):
+                        st.markdown(f"### {engine_name}")
+                        st.text_area(f"Текст от {engine_name}", engine_text, height=200, key=f"text_{engine_name}")
             
             # ========= Table Recognition Results =========
             if recognize_tables and 'tables' in results and results['tables']:
